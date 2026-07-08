@@ -1,0 +1,28 @@
+{
+	"$schema": "https://schema.tauri.app/config/2",
+	"productName": "Mover Marketing Video",
+	"mainBinaryName": "Mover Marketing Video",
+	"identifier": "ai.movermarketing.video",
+	"build": {
+		"beforeBundleCommand": "node scripts/prodBeforeBundle.js"
+	},
+	"plugins": {
+		"updater": {
+			"active": false,
+			"endpoints": [],
+			"dialog": false,
+			"pubkey": ""
+		}
+	},
+	"bundle": {
+		"createUpdaterArtifacts": false,
+		"macOS": {
+			"entitlements": "Entitlements.plist"
+		},
+		"windows": {
+			"wix": {
+				"upgradeCode": "a765d9de-0ecc-55d0-b8a0-61e9d3276664"
+			}
+		}
+	}
+}
