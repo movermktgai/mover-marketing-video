@@ -1,0 +1,26 @@
+{
+	"manifest_version": 3,
+	"name": "Mover Marketing Video for Gmail",
+	"short_name": "MM Video",
+	"description": "Turns Mover Marketing Video share links pasted into Gmail into rich video cards with preview, title, and duration.",
+	"version": "0.1.0",
+	"minimum_chrome_version": "116",
+	"icons": {
+		"16": "icons/icon-16.png",
+		"32": "icons/icon-32.png",
+		"48": "icons/icon-48.png",
+		"128": "icons/icon-128.png"
+	},
+	"permissions": ["storage"],
+	"content_scripts": [
+		{
+			"matches": ["https://mail.google.com/*"],
+			"js": ["assets/content.js"],
+			"run_at": "document_idle"
+		}
+	],
+	"options_ui": {
+		"page": "options.html",
+		"open_in_tab": true
+	}
+}

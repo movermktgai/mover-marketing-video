@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Mover Marketing Video for Gmail</title>
+		<script type="module" src="/src/options.ts"></script>
+	</head>
+	<body>
+		<main class="page">
+			<section class="card">
+				<img src="/icons/icon-128.png" width="64" height="64" alt="" />
+				<div>
+					<p class="eyebrow">Gmail extension</p>
+					<h1>Mover Marketing Video link cards</h1>
+					<p class="lede">
+						When you paste a video share link into Gmail, this extension replaces
+						the plain URL with an email-safe card that includes a preview image,
+						title, duration, and watch link.
+					</p>
+				</div>
+			</section>
+
+			<section class="card settings-card">
+				<label for="allowed-origins">
+					<span>Allowed app origins</span>
+					<small>
+						Optional. Add one origin per line to limit formatting to your own
+						Mover Marketing Video deployment. Leave blank to try any pasted
+						<code>/s/VIDEO_ID</code> link and only format URLs that expose the
+						share-card metadata endpoint.
+					</small>
+				</label>
+				<textarea
+					id="allowed-origins"
+					spellcheck="false"
+					placeholder="https://your-video-app.example.com"
+				></textarea>
+				<div class="actions">
+					<button type="button" id="save">Save settings</button>
+					<span id="status" role="status" aria-live="polite"></span>
+				</div>
+			</section>
+		</main>
+	</body>
+</html>
