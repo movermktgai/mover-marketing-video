@@ -73,6 +73,9 @@ scripts/seo/
 /docs/
 /.growth-agent/
 
+# Machine/local uptime monitor manifests may include private production domains.
+ops/uptime-monitors.json
+
 # OpenCode commands (local)
 .opencode/
 analysis/
