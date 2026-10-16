@@ -22,8 +22,8 @@ import "./styles/theme.css";
 import { CapErrorBoundary } from "./components/CapErrorBoundary";
 import WindowChromeLayout from "./routes/(window-chrome)";
 import SettingsLayout from "./routes/(window-chrome)/settings";
-import { generalSettingsStore } from "./store";
-import { initAnonymousUser } from "./utils/analytics";
+import { authStore, generalSettingsStore } from "./store";
+import { identifyUser, initAnonymousUser } from "./utils/analytics";
 import { type AppTheme, commands } from "./utils/tauri";
 import titlebar from "./utils/titlebar-state";
 
@@ -95,6 +95,7 @@ const TargetSelectOverlayPage = lazy(
 const WindowCaptureOccluderPage = lazy(
 	() => import("./routes/window-capture-occluder"),
 );
+const TeleprompterPage = lazy(() => import("./routes/teleprompter"));
 
 const queryClient = new QueryClient({
 	defaultOptions: {
@@ -126,6 +127,11 @@ function Inner() {
 
 	onMount(() => {
 		initAnonymousUser();
+		// OpenPanel keeps profileId in memory only (PostHog persisted it), so
+		// sign-in-time identify alone loses attribution after an app restart.
+		void authStore.get().then((auth) => {
+			if (auth?.user_id) identifyUser(auth.user_id);
+		});
 		prewarmFontCaches();
 	});
 
@@ -247,6 +253,11 @@ function Inner() {
 					<Route
 						path="/window-capture-occluder"
 						component={WindowCaptureOccluderPage}
+					/>
+					<Route
+						path="/teleprompter"
+						info={{ AUTO_SHOW_WINDOW: false }}
+						component={TeleprompterPage}
 					/>
 				</Router>
 			</CapErrorBoundary>

@@ -49,6 +49,7 @@ export function LoginForm() {
 	const [lastEmailSentTime, setLastEmailSentTime] = useState<number | null>(
 		null,
 	);
+	const mobileAppleSignInStarted = useRef(false);
 	const mobileGoogleSignInStarted = useRef(false);
 	const mobileWorkosSignInStarted = useRef(false);
 	const loginFormMounted = useRef(false);
@@ -115,6 +116,18 @@ export function LoginForm() {
 		});
 	}, [getNextPath]);
 
+	const handleAppleSignIn = useCallback(() => {
+		const nextPath = getNextPath();
+		trackEvent("auth_started", {
+			method: "apple",
+			is_signup: false,
+			auth_surface: "login",
+		});
+		signIn("apple", {
+			...(nextPath ? { callbackUrl: nextPath } : {}),
+		});
+	}, [getNextPath]);
+
 	const handleWorkosSignIn = useCallback(
 		async (orgId: string) => {
 			const nextPath = getNextPath();
@@ -132,6 +145,13 @@ export function LoginForm() {
 	);
 
 	useEffect(() => {
+		if (searchParams?.get("mobileProvider") === "apple") {
+			if (mobileAppleSignInStarted.current) return;
+			mobileAppleSignInStarted.current = true;
+			handleAppleSignIn();
+			return;
+		}
+
 		if (searchParams?.get("mobileProvider") === "google") {
 			if (mobileGoogleSignInStarted.current) return;
 			mobileGoogleSignInStarted.current = true;
@@ -154,7 +174,7 @@ export function LoginForm() {
 			setShowOrgInput(true);
 			toast.error("Organization not found or SSO not configured");
 		});
-	}, [handleGoogleSignIn, handleWorkosSignIn, searchParams]);
+	}, [handleAppleSignIn, handleGoogleSignIn, handleWorkosSignIn, searchParams]);
 
 	const handleOrganizationLookup = async (e: React.FormEvent) => {
 		e.preventDefault();
@@ -197,7 +217,12 @@ export function LoginForm() {
 					Back
 				</motion.p>
 			</motion.div>
-			<MotionLink layout="position" className="flex mx-auto size-fit" href="/">
+			<MotionLink
+				layout="position"
+				className="flex mx-auto size-fit"
+				href="/"
+				prefetch={false}
+			>
 				<MotionLogoBadge layout="position" className="size-12" />
 			</MotionLink>
 			<motion.div
@@ -347,6 +372,7 @@ export function LoginForm() {
 							<Link
 								href="/terms"
 								target="_blank"
+								prefetch={false}
 								className="text-xs font-semibold text-gray-12 hover:text-blue-300"
 							>
 								Terms of Service
@@ -355,6 +381,7 @@ export function LoginForm() {
 							<Link
 								href="/privacy"
 								target="_blank"
+								prefetch={false}
 								className="text-xs font-semibold text-gray-12 hover:text-blue-300"
 							>
 								Privacy Policy
@@ -474,6 +501,7 @@ const NormalLogin = ({
 				Don't have an account?{" "}
 				<Link
 					href="/signup"
+					prefetch={false}
 					className="text-xs font-semibold text-blue-9 hover:text-blue-8"
 				>
 					Sign up here

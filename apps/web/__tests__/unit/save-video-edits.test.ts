@@ -147,7 +147,7 @@ describe("saveVideoEdits", () => {
 		expect(insertMock).not.toHaveBeenCalled();
 	});
 
-	it("requires Cap Pro before saving edits", async () => {
+	it("explains how approved accounts regain editing access", async () => {
 		getCurrentUserMock.mockResolvedValueOnce({ id: "user-1", isPro: false });
 		const { saveVideoEdits } = await import("@/actions/videos/save-edits");
 
@@ -157,7 +157,9 @@ describe("saveVideoEdits", () => {
 				sourceDuration: 10,
 				keepRanges: [{ start: 0, end: 10 }],
 			}),
-		).rejects.toThrow("Cap Pro is required to edit videos");
+		).rejects.toThrow(
+			"Video editing is included for approved Mover Marketing Video accounts. Please contact the Mover Marketing AI team if access is unavailable.",
+		);
 
 		expect(selectMock).not.toHaveBeenCalled();
 	});

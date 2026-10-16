@@ -614,7 +614,39 @@ pub fn list_displays() -> Vec<(CaptureDisplay, Display)> {
         .collect()
 }
 
+#[cfg(target_os = "macos")]
+fn is_listable_macos_window(
+    level: Option<i32>,
+    owner_name: &str,
+    bundle_identifier: Option<&str>,
+    include_accessory_panels: bool,
+    is_accessory_application: bool,
+) -> bool {
+    if owner_name == "Window Server" {
+        return false;
+    }
+
+    if level == Some(0) {
+        return true;
+    }
+
+    matches!(level, Some(level) if level > 0)
+        && include_accessory_panels
+        && is_accessory_application
+        && bundle_identifier.is_some_and(|identifier| {
+            !identifier.starts_with("com.apple.") && !identifier.starts_with("so.cap.desktop")
+        })
+}
+
 pub fn list_windows() -> Vec<(CaptureWindow, Window)> {
+    list_windows_inner(false)
+}
+
+pub fn list_excludable_windows() -> Vec<(CaptureWindow, Window)> {
+    list_windows_inner(true)
+}
+
+fn list_windows_inner(_include_accessory_panels: bool) -> Vec<(CaptureWindow, Window)> {
     scap_targets::Window::list()
         .into_iter()
         .flat_map(|v| {
@@ -625,13 +657,26 @@ pub fn list_windows() -> Vec<(CaptureWindow, Window)> {
             }
 
             #[cfg(target_os = "macos")]
-            {
-                if v.raw_handle().level() != Some(0)
-                    || v.owner_name().filter(|v| v == "Window Server").is_some()
-                {
+            let (owner_name, bundle_identifier) = {
+                let owner_name = v.owner_name()?;
+                let level = v.raw_handle().level();
+                let bundle_identifier = v.raw_handle().bundle_identifier();
+                let is_accessory_application = _include_accessory_panels
+                    && matches!(level, Some(level) if level > 0)
+                    && v.raw_handle().is_accessory_application();
+
+                if !is_listable_macos_window(
+                    level,
+                    &owner_name,
+                    bundle_identifier.as_deref(),
+                    _include_accessory_panels,
+                    is_accessory_application,
+                ) {
                     return None;
                 }
-            }
+
+                (owner_name, bundle_identifier)
+            };
 
             #[cfg(windows)]
             {
@@ -640,10 +685,8 @@ pub fn list_windows() -> Vec<(CaptureWindow, Window)> {
                 }
             }
 
+            #[cfg(not(target_os = "macos"))]
             let owner_name = v.owner_name()?;
-
-            #[cfg(target_os = "macos")]
-            let bundle_identifier = v.raw_handle().bundle_identifier();
 
             #[cfg(not(target_os = "macos"))]
             let bundle_identifier = None;
@@ -688,6 +731,67 @@ mod tests {
         assert_eq!(physical.position().y(), 160.0);
         assert_eq!(physical.size().width(), 1280.0);
         assert_eq!(physical.size().height(), 720.0);
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn macos_window_filter_adds_only_third_party_accessory_panels() {
+        assert!(is_listable_macos_window(
+            Some(0),
+            "Example",
+            Some("com.example.app"),
+            false,
+            false,
+        ));
+        assert!(!is_listable_macos_window(
+            Some(3),
+            "FreeCastNotes",
+            Some("fi.sherbakov.freecastnotes"),
+            false,
+            true,
+        ));
+        assert!(is_listable_macos_window(
+            Some(3),
+            "FreeCastNotes",
+            Some("fi.sherbakov.freecastnotes"),
+            true,
+            true,
+        ));
+        assert!(!is_listable_macos_window(
+            Some(3),
+            "Example",
+            Some("com.example.app"),
+            true,
+            false,
+        ));
+        assert!(!is_listable_macos_window(
+            Some(25),
+            "Control Centre",
+            Some("com.apple.controlcenter"),
+            true,
+            true,
+        ));
+        assert!(!is_listable_macos_window(
+            Some(3),
+            "Cap",
+            Some("so.cap.desktop.dev"),
+            true,
+            true,
+        ));
+        assert!(!is_listable_macos_window(
+            Some(0),
+            "Window Server",
+            None,
+            true,
+            false,
+        ));
+        assert!(!is_listable_macos_window(
+            None,
+            "Example",
+            Some("com.example.app"),
+            true,
+            true,
+        ));
     }
 
     #[test]
@@ -737,14 +841,26 @@ mod tests {
     fn full_selection_covers_full_display_at_every_scale() {
         // (logical_size, physical_size) pairs for 100/125/150/175/200% scaling.
         let scales = [
-            (LogicalSize::new(1920.0, 1080.0), PhysicalSize::new(1920.0, 1080.0)), // 100%
-            (LogicalSize::new(1536.0, 864.0), PhysicalSize::new(1920.0, 1080.0)),  // 125%
-            (LogicalSize::new(1280.0, 720.0), PhysicalSize::new(1920.0, 1080.0)),  // 150%
+            (
+                LogicalSize::new(1920.0, 1080.0),
+                PhysicalSize::new(1920.0, 1080.0),
+            ), // 100%
+            (
+                LogicalSize::new(1536.0, 864.0),
+                PhysicalSize::new(1920.0, 1080.0),
+            ), // 125%
+            (
+                LogicalSize::new(1280.0, 720.0),
+                PhysicalSize::new(1920.0, 1080.0),
+            ), // 150%
             (
                 LogicalSize::new(1097.142_857_142_857, 617.142_857_142_857),
                 PhysicalSize::new(1920.0, 1080.0),
             ), // 175%
-            (LogicalSize::new(1280.0, 720.0), PhysicalSize::new(2560.0, 1440.0)),  // 200%
+            (
+                LogicalSize::new(1280.0, 720.0),
+                PhysicalSize::new(2560.0, 1440.0),
+            ), // 200%
         ];
 
         for (logical, physical) in scales {

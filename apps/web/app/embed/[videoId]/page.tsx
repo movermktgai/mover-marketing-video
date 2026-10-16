@@ -25,13 +25,13 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import * as EffectRuntime from "@/lib/server";
+import { buildShareVideoMetadata } from "@/lib/share-video-metadata";
 import { transcribeVideo } from "@/lib/transcribe";
 import { isAiGenerationEnabled } from "@/utils/flags";
 import { EmbedVideo } from "./_components/EmbedVideo";
 import { PasswordOverlay } from "./_components/PasswordOverlay";
 
 const PRODUCT_NAME = "Mover Marketing Video";
-const watchVideoDescription = `Watch this video on ${PRODUCT_NAME}`;
 
 export async function generateMetadata(
 	props: PageProps<"/embed/[videoId]">,
@@ -44,54 +44,13 @@ export async function generateMetadata(
 			Option.match({
 				onNone: () => notFound(),
 				onSome: ([video]) => ({
-					title: `${video.name} | ${PRODUCT_NAME}`,
-					description: watchVideoDescription,
-					openGraph: {
-						images: [
-							{
-								url: new URL(
-									`/api/video/og?videoId=${videoId}`,
-									buildEnv.NEXT_PUBLIC_WEB_URL,
-								).toString(),
-								width: 1200,
-								height: 630,
-							},
-						],
-						videos: [
-							{
-								url: new URL(
-									`/api/playlist?userId=${video.ownerId}&videoId=${video.id}`,
-									buildEnv.NEXT_PUBLIC_WEB_URL,
-								).toString(),
-								width: 1280,
-								height: 720,
-								type: "video/mp4",
-							},
-						],
-					},
-					twitter: {
-						card: "player",
-						title: `${video.name} | ${PRODUCT_NAME}`,
-						description: watchVideoDescription,
-						images: [
-							new URL(
-								`/api/video/og?videoId=${videoId}`,
-								buildEnv.NEXT_PUBLIC_WEB_URL,
-							).toString(),
-						],
-						players: {
-							playerUrl: new URL(
-								`/embed/${videoId}`,
-								buildEnv.NEXT_PUBLIC_WEB_URL,
-							).toString(),
-							streamUrl: new URL(
-								`/api/playlist?userId=${video.ownerId}&videoId=${video.id}`,
-								buildEnv.NEXT_PUBLIC_WEB_URL,
-							).toString(),
-							width: 1280,
-							height: 720,
-						},
-					},
+					...buildShareVideoMetadata({
+						videoId,
+						name: video.name,
+						sourceType: video.source.type,
+						webUrl: buildEnv.NEXT_PUBLIC_WEB_URL,
+						productName: PRODUCT_NAME,
+					}),
 					robots: "index, follow",
 				}),
 			}),
@@ -99,13 +58,13 @@ export async function generateMetadata(
 		Effect.catchTags({
 			PolicyDenied: () =>
 				Effect.succeed({
-					title: "Cap: This video is private",
+					title: `${PRODUCT_NAME}: This video is private`,
 					description: "This video is private and cannot be shared.",
 					robots: "noindex, nofollow",
 				}),
 			VerifyVideoPasswordError: () =>
 				Effect.succeed({
-					title: "Cap: Password Protected Video",
+					title: `${PRODUCT_NAME}: Password Protected Video`,
 					description: "This video is password protected.",
 					robots: "noindex, nofollow",
 				}),
@@ -135,6 +94,7 @@ export default async function EmbedVideoPage(
 	const searchParams = await props.searchParams;
 	const videoId = params.videoId as Video.VideoId;
 	const autoplay = searchParams.autoplay === "true";
+	const minimal = searchParams.slack === "true";
 
 	return Effect.gen(function* () {
 		const videosPolicy = yield* VideosPolicy;
@@ -196,10 +156,21 @@ export default async function EmbedVideoPage(
 			Effect.succeed({ needsPassword: true } as const),
 		),
 		Effect.map((data) => (
-			<div key={videoId} className="min-h-screen bg-black">
+			<div
+				key={videoId}
+				className={
+					minimal
+						? "h-screen overflow-hidden bg-black"
+						: "min-h-screen bg-black"
+				}
+			>
 				<PasswordOverlay isOpen={data.needsPassword} videoId={videoId} />
 				{!data.needsPassword && (
-					<EmbedContent video={data.video} autoplay={autoplay} />
+					<EmbedContent
+						video={data.video}
+						autoplay={autoplay}
+						minimal={minimal}
+					/>
 				)}
 			</div>
 		)),
@@ -215,6 +186,7 @@ export default async function EmbedVideoPage(
 async function EmbedContent({
 	video,
 	autoplay,
+	minimal,
 }: {
 	video: Omit<typeof videos.$inferSelect, "password"> & {
 		sharedOrganization: { organizationId: Organisation.OrganisationId } | null;
@@ -222,6 +194,7 @@ async function EmbedContent({
 		orgSettings?: (typeof organizations.$inferSelect)["settings"] | null;
 	};
 	autoplay: boolean;
+	minimal: boolean;
 }) {
 	const user = await getCurrentUser();
 	const sharedSpaces = await db()
@@ -327,6 +300,7 @@ async function EmbedContent({
 			}
 			ownerName={videoOwner[0]?.name || null}
 			autoplay={autoplay}
+			minimal={minimal}
 			viewerSettings={rules.settings}
 			showPlaybackStatusBadge={user?.id === video.ownerId}
 		/>

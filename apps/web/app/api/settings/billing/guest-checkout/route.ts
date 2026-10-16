@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 
 const BILLING_DISABLED_MESSAGE =
 	"Paid subscriptions are disabled for Mover Marketing Video.";
@@ -10,6 +10,6 @@ export async function GET() {
 	return billingDisabledResponse();
 }
 
-export async function POST() {
+export async function POST(_request: NextRequest) {
 	return billingDisabledResponse();
 }

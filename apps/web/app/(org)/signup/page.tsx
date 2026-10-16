@@ -19,7 +19,7 @@ export default async function SignupPage() {
 					className="opacity-75 size-3 text-gray-12"
 					icon={faArrowLeft}
 				/>
-				<Link className="text-gray-12" href="/">
+				<Link className="text-gray-12" href="/" prefetch={false}>
 					Home
 				</Link>
 			</div>

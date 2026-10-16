@@ -42,6 +42,7 @@ const defaultFont = localFont({
 
 const APP_NAME = "Mover Marketing Video";
 const APP_TAGLINE = "Screen recording for MMAI";
+const APP_TITLE = `${APP_NAME} — ${APP_TAGLINE}`;
 const APP_DESCRIPTION =
 	"White-labeled screen recording and async video sharing for Mover Marketing AI.";
 const APP_URL = process.env.NEXT_PUBLIC_WEB_URL ?? "http://localhost:3000";
@@ -51,20 +52,27 @@ const APP_TILE_COLOR = "#0B1220";
 
 export const metadata: Metadata = {
 	metadataBase: new URL(APP_URL),
-	title: `${APP_NAME} — ${APP_TAGLINE}`,
+	title: APP_TITLE,
 	description: APP_DESCRIPTION,
 	openGraph: {
-		title: `${APP_NAME} — ${APP_TAGLINE}`,
+		title: APP_TITLE,
 		description: APP_DESCRIPTION,
 		type: "website",
 		url: APP_URL,
+		siteName: APP_NAME,
+		images: [APP_OG_IMAGE],
+	},
+	twitter: {
+		card: "summary_large_image",
+		title: APP_TITLE,
+		description: APP_DESCRIPTION,
 		images: [APP_OG_IMAGE],
 	},
 };
 
 export default function RootLayout({ children }: PropsWithChildren) {
 	return (
-		<html className={defaultFont.className} lang="en">
+		<html className={defaultFont.className} lang="en" suppressHydrationWarning>
 			<head>
 				<link
 					rel="apple-touch-icon"

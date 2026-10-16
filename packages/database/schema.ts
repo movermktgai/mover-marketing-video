@@ -1,4 +1,5 @@
 import type {
+	Agent,
 	AiGenerationLanguage,
 	Comment,
 	Folder,
@@ -252,6 +253,35 @@ export const organizationMembers = mysqlTable(
 			table.userId,
 			table.organizationId,
 		),
+	}),
+);
+
+export const integrationInstallations = mysqlTable(
+	"integration_installations",
+	{
+		id: nanoId("id").notNull().primaryKey(),
+		provider: varchar("provider", { length: 64 }).notNull(),
+		externalId: varchar("externalId", { length: 255 }).notNull(),
+		displayName: varchar("displayName", { length: 255 }).notNull(),
+		organizationId: nanoId("organizationId")
+			.notNull()
+			.$type<Organisation.OrganisationId>(),
+		installedByUserId: nanoId("installedByUserId")
+			.notNull()
+			.$type<User.UserId>(),
+		encryptedCredentials: encryptedText("encryptedCredentials").notNull(),
+		metadata: json("metadata").notNull().$type<Record<string, unknown>>(),
+		createdAt: timestamp("createdAt").notNull().defaultNow(),
+		updatedAt: timestamp("updatedAt").notNull().defaultNow().onUpdateNow(),
+	},
+	(table) => ({
+		providerExternalIdIndex: uniqueIndex("provider_external_id_idx").on(
+			table.provider,
+			table.externalId,
+		),
+		organizationProviderDisplayNameIndex: index(
+			"organization_provider_display_name_idx",
+		).on(table.organizationId, table.provider, table.displayName),
 	}),
 );
 
@@ -783,6 +813,117 @@ export const authApiKeys = mysqlTable(
 	}),
 );
 
+export const agentApiKeys = mysqlTable(
+	"agent_api_keys",
+	{
+		id: nanoId("id").notNull().primaryKey(),
+		userId: nanoId("userId").notNull().$type<User.UserId>(),
+		tokenHash: varchar("tokenHash", { length: 64 }).notNull(),
+		name: varchar("name", { length: 100 }).notNull().default("Cap CLI"),
+		scopes: json("scopes").notNull().$type<Agent.AgentScope[]>(),
+		expiresAt: timestamp("expiresAt").notNull(),
+		revokedAt: timestamp("revokedAt"),
+		createdAt: timestamp("createdAt").notNull().defaultNow(),
+		lastUsedAt: timestamp("lastUsedAt"),
+	},
+	(table) => [
+		uniqueIndex("token_hash_idx").on(table.tokenHash),
+		index("user_created_at_idx").on(table.userId, table.createdAt),
+		index("expires_at_idx").on(table.expiresAt),
+	],
+);
+
+export const agentApiIdempotency = mysqlTable(
+	"agent_api_idempotency",
+	{
+		id: nanoId("id").notNull().primaryKey(),
+		userId: nanoId("userId").notNull().$type<User.UserId>(),
+		operation: varchar("operation", { length: 64 }).notNull(),
+		keyHash: varchar("keyHash", { length: 64 }).notNull(),
+		requestHash: varchar("requestHash", { length: 64 }).notNull(),
+		state: varchar("state", {
+			length: 16,
+			enum: ["pending", "complete"],
+		})
+			.notNull()
+			.default("pending"),
+		statusCode: int("statusCode"),
+		response: json("response").$type<unknown>(),
+		expiresAt: timestamp("expiresAt").notNull(),
+		createdAt: timestamp("createdAt").notNull().defaultNow(),
+		updatedAt: timestamp("updatedAt").notNull().defaultNow().onUpdateNow(),
+	},
+	(table) => [
+		uniqueIndex("user_operation_key_idx").on(
+			table.userId,
+			table.operation,
+			table.keyHash,
+		),
+		index("expires_at_idx").on(table.expiresAt),
+	],
+);
+
+export const agentApiAuthorizationCodes = mysqlTable(
+	"agent_api_authorization_codes",
+	{
+		id: nanoId("id").notNull().primaryKey(),
+		userId: nanoId("userId").notNull().$type<User.UserId>(),
+		codeHash: varchar("codeHash", { length: 64 }).notNull(),
+		codeChallenge: varchar("codeChallenge", { length: 64 }).notNull(),
+		redirectUri: varchar("redirectUri", { length: 512 }).notNull(),
+		scopes: json("scopes").notNull().$type<Agent.AgentScope[]>(),
+		expiresAt: timestamp("expiresAt").notNull(),
+		consumedAt: timestamp("consumedAt"),
+		createdAt: timestamp("createdAt").notNull().defaultNow(),
+	},
+	(table) => [
+		uniqueIndex("code_hash_idx").on(table.codeHash),
+		index("expires_at_idx").on(table.expiresAt),
+		index("user_created_at_idx").on(table.userId, table.createdAt),
+	],
+);
+
+export const agentApiOperations = mysqlTable(
+	"agent_api_operations",
+	{
+		id: nanoId("id").notNull().primaryKey(),
+		userId: nanoId("userId").notNull().$type<User.UserId>(),
+		kind: varchar("kind", {
+			length: 32,
+			enum: [
+				"duplicate_cap",
+				"delete_cap",
+				"import_loom",
+				"delete_organization",
+				"set_organization_domain",
+				"remove_organization_domain",
+				"verify_organization_domain",
+				"transfer_org_content",
+			],
+		}).notNull(),
+		resourceId: nanoId("resourceId").notNull(),
+		resultResourceId: nanoIdNullable("resultResourceId"),
+		state: varchar("state", {
+			length: 16,
+			enum: ["queued", "running", "succeeded", "failed"],
+		})
+			.notNull()
+			.default("queued"),
+		payload: json("payload").notNull().$type<unknown>(),
+		result: json("result").$type<unknown>(),
+		errorCode: varchar("errorCode", { length: 64 }),
+		errorMessage: text("errorMessage"),
+		createdAt: timestamp("createdAt").notNull().defaultNow(),
+		updatedAt: timestamp("updatedAt").notNull().defaultNow().onUpdateNow(),
+		completedAt: timestamp("completedAt"),
+	},
+	(table) => [
+		index("user_created_at_idx").on(table.userId, table.createdAt),
+		index("state_updated_at_idx").on(table.state, table.updatedAt),
+		index("resource_id_idx").on(table.resourceId),
+	],
+);
+
 export const commentsRelations = relations(comments, ({ one }) => ({
 	author: one(users, {
 		fields: [comments.authorId],
@@ -852,6 +993,7 @@ export const usersRelations = relations(users, ({ many, one }) => ({
 	messengerConversations: many(messengerConversations),
 	messengerMessages: many(messengerMessages),
 	messengerSupportEmails: many(messengerSupportEmails),
+	integrationInstallations: many(integrationInstallations),
 }));
 
 export const accountsRelations = relations(accounts, ({ one }) => ({
@@ -911,6 +1053,7 @@ export const organizationsRelations = relations(
 		spaces: many(spaces),
 		s3Buckets: many(s3Buckets),
 		storageIntegrations: many(storageIntegrations),
+		integrationInstallations: many(integrationInstallations),
 	}),
 );
 
@@ -938,6 +1081,20 @@ export const organizationMembersRelations = relations(
 		organization: one(organizations, {
 			fields: [organizationMembers.organizationId],
 			references: [organizations.id],
+		}),
+	}),
+);
+
+export const integrationInstallationsRelations = relations(
+	integrationInstallations,
+	({ one }) => ({
+		organization: one(organizations, {
+			fields: [integrationInstallations.organizationId],
+			references: [organizations.id],
+		}),
+		installedByUser: one(users, {
+			fields: [integrationInstallations.installedByUserId],
+			references: [users.id],
 		}),
 	}),
 );

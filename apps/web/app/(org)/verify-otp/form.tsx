@@ -157,13 +157,14 @@ export function VerifyOTPForm({
 		>
 			<Link
 				href="/login"
+				prefetch={false}
 				className="absolute top-5 left-5 z-20 flex gap-2 items-center py-1.5 px-3 text-gray-12 bg-transparent border border-gray-4 rounded-full hover:bg-gray-1 transition-colors duration-300"
 			>
 				<FontAwesomeIcon className="w-2" icon={faArrowLeft} />
 				<p className="text-xs">Back</p>
 			</Link>
 
-			<Link className="flex mx-auto size-fit" href="/">
+			<Link className="flex mx-auto size-fit" href="/" prefetch={false}>
 				<LogoBadge className="size-12" />
 			</Link>
 
@@ -234,6 +235,7 @@ export function VerifyOTPForm({
 				<Link
 					href="/terms"
 					target="_blank"
+					prefetch={false}
 					className="text-xs font-semibold text-gray-12 hover:text-blue-300"
 				>
 					Terms of Service
@@ -242,6 +244,7 @@ export function VerifyOTPForm({
 				<Link
 					href="/privacy"
 					target="_blank"
+					prefetch={false}
 					className="text-xs font-semibold text-gray-12 hover:text-blue-300"
 				>
 					Privacy Policy

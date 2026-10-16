@@ -9,10 +9,10 @@
 		"cf-typegen": "wrangler types"
 	},
 	"devDependencies": {
-		"@cloudflare/vitest-pool-workers": "^0.9.0",
+		"@cloudflare/vitest-pool-workers": "^0.6.4",
 		"@cloudflare/workers-types": "^4.20250214.0",
 		"typescript": "^5.8.3",
-		"vitest": "~5.0.1",
+		"vitest": "~2.1.9",
 		"wrangler": "^3.109.1"
 	},
 	"dependencies": {
@@ -22,7 +22,7 @@
 		"jose": "^5.10.0",
 		"octokit": "^4.1.2",
 		"tweetnacl": "^1.0.3",
-		"valibot": "1.4.2",
+		"valibot": "1.0.0-rc.1",
 		"zod": "^3"
 	}
 }

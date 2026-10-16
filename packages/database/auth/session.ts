@@ -6,15 +6,11 @@ import { db } from "../";
 import { users } from "../schema";
 import { authOptions } from "./auth-options";
 
-export const getSession = async () => {
-	const session = await getServerSession(authOptions());
-
-	return session;
-};
+export const getSession = cache(() => getServerSession(authOptions()));
 
 export const getCurrentUser = cache(
 	async (): Promise<InferSelectModel<typeof users> | null> => {
-		const session = await getServerSession(authOptions());
+		const session = await getSession();
 
 		if (!session) return null;
 

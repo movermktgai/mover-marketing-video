@@ -152,13 +152,20 @@ describe("Breadcrumb structured data in tools pages", () => {
 
 		it(`${file} contains Home breadcrumb`, () => {
 			const content = readPage(file);
-			expect(content).toContain("https://cap.so");
+			const hasHomeUrl =
+				content.includes("https://cap.so") ||
+				content.includes("url: PUBLIC_APP_URL");
+			expect(hasHomeUrl).toBe(true);
 		});
 
 		for (const url of breadcrumbItems) {
 			it(`${file} contains breadcrumb url "${url}"`, () => {
 				const content = readPage(file);
-				expect(content).toContain(url);
+				const relativePath = url.replace("https://cap.so", "");
+				const hasBreadcrumbUrl =
+					content.includes(url) ||
+					content.includes(`\${PUBLIC_APP_URL}${relativePath}`);
+				expect(hasBreadcrumbUrl).toBe(true);
 			});
 		}
 	}

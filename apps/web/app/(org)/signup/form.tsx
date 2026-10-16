@@ -145,7 +145,12 @@ export function SignupForm() {
 					Back
 				</motion.p>
 			</motion.div>
-			<MotionLink layout="position" className="flex mx-auto size-fit" href="/">
+			<MotionLink
+				layout="position"
+				className="flex mx-auto size-fit"
+				href="/"
+				prefetch={false}
+			>
 				<MotionLogoBadge layout="position" className="w-[72px] h-[72px]" />
 			</MotionLink>
 			<motion.div
@@ -293,6 +298,7 @@ export function SignupForm() {
 							Already have an account?{" "}
 							<Link
 								href="/login"
+								prefetch={false}
 								className="text-xs font-semibold text-blue-9 hover:text-blue-8"
 							>
 								Log in here
@@ -307,6 +313,7 @@ export function SignupForm() {
 							<Link
 								href="/terms"
 								target="_blank"
+								prefetch={false}
 								className="text-xs font-semibold text-gray-12 hover:text-blue-300"
 							>
 								Terms of Service
@@ -315,6 +322,7 @@ export function SignupForm() {
 							<Link
 								href="/privacy"
 								target="_blank"
+								prefetch={false}
 								className="text-xs font-semibold text-gray-12 hover:text-blue-300"
 							>
 								Privacy Policy

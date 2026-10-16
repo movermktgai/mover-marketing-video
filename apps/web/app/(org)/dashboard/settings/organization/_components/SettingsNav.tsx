@@ -19,6 +19,10 @@ export function SettingsNav() {
 			href: "/dashboard/settings/organization/integrations",
 		},
 		{
+			label: "Content",
+			href: "/dashboard/settings/organization/content",
+		},
+		{
 			label: buildEnv.NEXT_PUBLIC_IS_CAP ? "Billing & Members" : "Members",
 			href: buildEnv.NEXT_PUBLIC_IS_CAP
 				? "/dashboard/settings/organization/billing"
@@ -27,7 +31,7 @@ export function SettingsNav() {
 	] as const;
 
 	return (
-		<div className="flex gap-4 items-center border-b border-gray-4">
+		<div className="flex overflow-x-auto gap-4 items-center border-b border-gray-4 custom-scroll">
 			{tabs.map((tab) => {
 				const isActive = pathname === tab.href;
 

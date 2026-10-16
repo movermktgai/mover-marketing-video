@@ -170,7 +170,7 @@ describe("generateMessengerAgentReply", () => {
 				type: "tool_result",
 				tool_use_id: "tool-1",
 				content:
-					"Support email sent to hello@cap.so from the user's account email. Remaining sends today: 1.",
+					"Support email sent to the Mover Marketing AI team from the user's account email. Remaining sends today: 1.",
 			},
 		]);
 	});
@@ -357,7 +357,7 @@ describe("generateMessengerAgentReply", () => {
 			role: "tool",
 			tool_call_id: "call-1",
 			content:
-				"Support email sent to hello@cap.so from the user's account email. Remaining sends today: 1.",
+				"Support email sent to the Mover Marketing AI team from the user's account email. Remaining sends today: 1.",
 		});
 	});
 
@@ -458,7 +458,7 @@ describe("generateMessengerAgentReply", () => {
 					role: "tool",
 					tool_call_id: "call-1",
 					content:
-						"Support email sent to hello@cap.so from the user's account email. Remaining sends today: 1.",
+						"Support email sent to the Mover Marketing AI team from the user's account email. Remaining sends today: 1.",
 				},
 			]),
 		});

@@ -25,8 +25,8 @@
 	"kv_namespaces": [
 		{
 			"binding": "release_discord_interactions",
-			"id": "REPLACE_WITH_CLOUDFLARE_KV_NAMESPACE_ID",
-			"preview_id": "REPLACE_WITH_CLOUDFLARE_KV_PREVIEW_NAMESPACE_ID"
+			"id": "846b080b86914e2ba666d35acee35c9a",
+			"preview_id": "5f3b4b601daa4a758743ff2f52f09277"
 		}
 	]
 
