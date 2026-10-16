@@ -28,7 +28,15 @@ export function SettingsNav() {
 				? "/dashboard/settings/organization/billing"
 				: "/dashboard/settings/organization/members",
 		},
-	] as const;
+		...(buildEnv.NEXT_PUBLIC_IS_CAP
+			? [
+					{
+						label: "Security & Compliance",
+						href: "/dashboard/settings/organization/security",
+					},
+				]
+			: []),
+	];
 
 	return (
 		<div className="flex overflow-x-auto gap-4 items-center border-b border-gray-4 custom-scroll">

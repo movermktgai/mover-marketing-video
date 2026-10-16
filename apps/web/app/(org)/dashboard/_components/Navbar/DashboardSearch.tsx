@@ -28,8 +28,12 @@ import {
 	UserRound,
 	UsersRound,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+	loomImportDestinationFromPathname,
+	loomImportPageHref,
+} from "@/lib/loom-import-destination";
 import {
 	canViewOrganizationSettings,
 	getEffectiveOrganizationRole,
@@ -120,6 +124,7 @@ export function DashboardSearch({
 	shortcutEnabled?: boolean;
 } = {}) {
 	const router = useRouter();
+	const pathname = usePathname();
 	const { activeOrganization, spacesData, user } = useDashboardContext();
 	const { platform } = useDetectPlatform();
 	const [open, setOpen] = useState(false);
@@ -167,7 +172,7 @@ export function DashboardSearch({
 				id: "import-video",
 				title: "Import Media",
 				subtitle: "Bring an existing video or image into Cap",
-				href: "/dashboard/import",
+				href: loomImportPageHref(loomImportDestinationFromPathname(pathname)),
 				value: "import upload loom video image media file",
 				icon: Upload,
 			},
@@ -188,7 +193,7 @@ export function DashboardSearch({
 				icon: FolderSearch,
 			},
 		],
-		[],
+		[pathname],
 	);
 
 	const settingsItems = useMemo<SearchItem[]>(

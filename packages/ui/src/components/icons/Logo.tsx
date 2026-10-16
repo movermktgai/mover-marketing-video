@@ -30,6 +30,7 @@ export const Logo = ({
 	showBeta?: boolean;
 	white?: boolean;
 	hideLogoName?: boolean;
+	squaredMark?: boolean;
 	style?: React.CSSProperties;
 	viewBoxDimensions?: `${string} ${string} ${string} ${string}`;
 }) => {

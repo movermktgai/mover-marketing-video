@@ -11,7 +11,7 @@ import {
 	videos,
 } from "@cap/database/schema";
 import { userIsPro } from "@cap/utils";
-import { ImageUploads } from "@cap/web-backend";
+import { Database, ImageUploads } from "@cap/web-backend";
 import type { ImageUpload } from "@cap/web-domain";
 import { and, count, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { Effect } from "effect";
@@ -67,15 +67,6 @@ export type Spaces = Omit<
 
 export type UserPreferences = (typeof users.$inferSelect)["preferences"];
 
-type OrganizationSummary = Omit<Organization, "invites">;
-
-type ActiveOrganizationData = {
-	organizationSettings: OrganizationSettings | null;
-	spacesData: Spaces[];
-	anyNewNotifications: boolean;
-	userCapsCount: number;
-};
-
 function mergeUserOrganizations(
 	ownedOrganizations: (typeof organizations.$inferSelect)[],
 	memberOrganizations: { organization: typeof organizations.$inferSelect }[],
@@ -96,161 +87,201 @@ function mergeUserOrganizations(
 	return Array.from(organizationsById.values());
 }
 
-function emptyActiveOrganizationData(): ActiveOrganizationData {
-	return {
-		organizationSettings: null,
-		spacesData: [],
-		anyNewNotifications: false,
-		userCapsCount: 0,
-	};
-}
+type OrganizationRow = typeof organizations.$inferSelect;
 
-function groupBy<T, K>(values: T[], getKey: (value: T) => K) {
-	const grouped = new Map<K, T[]>();
-	for (const value of values) {
-		const key = getKey(value);
-		const group = grouped.get(key);
-		if (group) group.push(value);
-		else grouped.set(key, [value]);
-	}
-	return grouped;
-}
-
-async function loadActiveOrganizationData({
-	activeOrganization,
-	memberRole,
-	user,
-}: {
-	activeOrganization: typeof organizations.$inferSelect;
-	memberRole:
-		| (typeof organizationMembers.$inferSelect)["role"]
-		| null
-		| undefined;
-	user: typeof userSelectProps;
-}): Promise<ActiveOrganizationData> {
-	const currentOrganizationRole = getEffectiveOrganizationRole({
-		userId: user.id,
-		ownerId: activeOrganization.ownerId,
-		memberRole,
-	});
-
-	const [activeStatsRows, rawSpaces] = await Promise.all([
+async function loadUserOrganizations(user: typeof userSelectProps) {
+	const [ownedOrganizations, memberOrganizations] = await Promise.all([
 		db()
-			.select({
-				anyNewNotifications: sql<boolean>`EXISTS (
-					SELECT 1 FROM ${notifications}
-					WHERE ${notifications.recipientId} = ${user.id}
-					AND ${notifications.orgId} = ${activeOrganization.id}
-					AND ${notifications.readAt} IS NULL
-					LIMIT 1
-				)`.mapWith(Boolean),
-				memberCount: sql<number>`(
-					SELECT COUNT(*) FROM ${organizationMembers}
-					WHERE ${organizationMembers.organizationId} = ${activeOrganization.id}
-				)`.mapWith(Number),
-				videoCount: sql<number>`(
-					SELECT COUNT(DISTINCT ${sharedVideos.videoId}) FROM ${sharedVideos}
-					WHERE ${sharedVideos.organizationId} = ${activeOrganization.id}
-				)`.mapWith(Number),
-				userCapsCount: sql<number>`(
-					SELECT COUNT(DISTINCT ${videos.id}) FROM ${videos}
-					WHERE ${videos.orgId} = ${activeOrganization.id}
-					AND ${videos.ownerId} = ${user.id}
-				)`.mapWith(Number),
-			})
+			.select()
 			.from(organizations)
-			.where(eq(organizations.id, activeOrganization.id))
-			.limit(1),
-		db()
-			.select({
-				id: spaces.id,
-				primary: spaces.primary,
-				privacy: spaces.privacy,
-				public: spaces.public,
-				name: spaces.name,
-				description: spaces.description,
-				organizationId: spaces.organizationId,
-				createdById: spaces.createdById,
-				iconUrl: spaces.iconUrl,
-				settings: spaces.settings,
-				currentUserSpaceRole: sql<string | null>`(
-					SELECT space_members.role FROM space_members
-					WHERE space_members.spaceId = spaces.id
-					AND space_members.userId = ${user.id}
-					LIMIT 1
-				)`,
-				hasPassword: sql`${spaces.password} IS NOT NULL`.mapWith(Boolean),
-				memberCount: sql<number>`(
-					SELECT COUNT(*) FROM space_members WHERE space_members.spaceId = spaces.id
-				)`,
-				videoCount: sql<number>`(
-					SELECT COUNT(*) FROM space_videos WHERE space_videos.spaceId = spaces.id
-				)`,
-			})
-			.from(spaces)
 			.where(
 				and(
-					eq(spaces.organizationId, activeOrganization.id),
-					or(
-						eq(spaces.createdById, user.id),
-						eq(spaces.privacy, "Public"),
-						sql`EXISTS (
-							SELECT 1 FROM space_members
-							WHERE space_members.spaceId = spaces.id
-							AND space_members.userId = ${user.id}
-						)`,
-					),
+					isNull(organizations.tombstoneAt),
+					eq(organizations.ownerId, user.id),
+				),
+			),
+		db()
+			.select({ organization: organizations })
+			.from(organizationMembers)
+			.innerJoin(
+				organizations,
+				eq(organizations.id, organizationMembers.organizationId),
+			)
+			.where(
+				and(
+					eq(organizationMembers.userId, user.id),
+					isNull(organizations.tombstoneAt),
 				),
 			),
 	]);
 
-	const activeStats = activeStatsRows[0];
-	const resolvedSpaces = await Effect.gen(function* () {
-		const imageUploads = yield* ImageUploads;
+	return mergeUserOrganizations(ownedOrganizations, memberOrganizations);
+}
 
-		return yield* Effect.all(
-			rawSpaces.map(
-				Effect.fn(function* (row) {
-					const { currentUserSpaceRole, ...spaceRow } = row;
-					const currentUserRole = getEffectiveSpaceRole({
-						userId: user.id,
-						createdById: row.createdById,
-						memberRole: currentUserSpaceRole,
-					});
+function resolveActiveOrganization(
+	user: typeof userSelectProps,
+	userOrganizations: OrganizationRow[],
+) {
+	const organizationIds = userOrganizations.map((org) => org.id);
 
-					return {
-						...spaceRow,
-						iconUrl: row.iconUrl
-							? yield* imageUploads.resolveImageUrl(row.iconUrl)
-							: null,
-						currentUserRole,
-						currentUserCanManage: canManageSpace({
-							organizationRole: currentOrganizationRole,
-							spaceRole: currentUserRole,
-						}),
-					};
-				}),
+	let activeOrganizationId = organizationIds.find(
+		(orgId) => orgId === user.activeOrganizationId,
+	);
+
+	if (!activeOrganizationId && organizationIds.length > 0) {
+		activeOrganizationId = organizationIds[0];
+	}
+
+	if (!activeOrganizationId) return null;
+
+	return {
+		activeOrganizationId,
+		activeOrgInfo: userOrganizations.find(
+			(org) => org.id === activeOrganizationId,
+		),
+	};
+}
+
+async function loadActiveOrganizationRole(
+	user: typeof userSelectProps,
+	activeOrganizationId: OrganizationRow["id"],
+	activeOrgInfo: OrganizationRow | undefined,
+) {
+	const [activeOrgMembership] = await db()
+		.select({ role: organizationMembers.role })
+		.from(organizationMembers)
+		.where(
+			and(
+				eq(organizationMembers.organizationId, activeOrganizationId),
+				eq(organizationMembers.userId, user.id),
 			),
-			{ concurrency: 4 },
-		);
-	}).pipe(runPromise);
+		)
+		.limit(1);
 
-	const allSpacesEntry = await Effect.gen(function* () {
+	return getEffectiveOrganizationRole({
+		userId: user.id,
+		ownerId: activeOrgInfo?.ownerId,
+		memberRole: activeOrgMembership?.role,
+	});
+}
+
+function loadSpaces(
+	user: typeof userSelectProps,
+	activeOrganizationId: OrganizationRow["id"],
+	currentOrganizationRole: OrganizationRole | null,
+): Promise<Spaces[]> {
+	return Effect.gen(function* () {
+		const db = yield* Database;
 		const imageUploads = yield* ImageUploads;
+
+		return yield* db
+			.use((db) =>
+				db
+					.select({
+						id: spaces.id,
+						primary: spaces.primary,
+						privacy: spaces.privacy,
+						public: spaces.public,
+						name: spaces.name,
+						description: spaces.description,
+						organizationId: spaces.organizationId,
+						createdById: spaces.createdById,
+						iconUrl: spaces.iconUrl,
+						settings: spaces.settings,
+						currentUserSpaceRole: sql<string | null>`(
+          SELECT space_members.role FROM space_members
+          WHERE space_members.spaceId = spaces.id
+          AND space_members.userId = ${user.id}
+          LIMIT 1
+        )`,
+						hasPassword: sql`${spaces.password} IS NOT NULL`.mapWith(Boolean),
+						memberCount: sql<number>`(
+          SELECT COUNT(*) FROM space_members WHERE space_members.spaceId = spaces.id
+        )`,
+						videoCount: sql<number>`(
+          SELECT COUNT(*) FROM space_videos WHERE space_videos.spaceId = spaces.id
+        )`,
+					})
+					.from(spaces)
+					.where(
+						and(
+							eq(spaces.organizationId, activeOrganizationId),
+							or(
+								eq(spaces.createdById, user.id),
+								eq(spaces.privacy, "Public"),
+								sql`EXISTS (
+          SELECT 1 FROM space_members 
+          WHERE space_members.spaceId = spaces.id 
+          AND space_members.userId = ${user.id}
+        )`,
+							),
+						),
+					),
+			)
+			.pipe(
+				Effect.map((rows) =>
+					rows.map(
+						Effect.fn(function* (row) {
+							const { currentUserSpaceRole, ...spaceRow } = row;
+							const currentUserRole = getEffectiveSpaceRole({
+								userId: user.id,
+								createdById: row.createdById,
+								memberRole: currentUserSpaceRole,
+							});
+							return {
+								...spaceRow,
+								iconUrl: row.iconUrl
+									? yield* imageUploads.resolveImageUrl(row.iconUrl)
+									: null,
+								currentUserRole,
+								currentUserCanManage: canManageSpace({
+									organizationRole: currentOrganizationRole,
+									spaceRole: currentUserRole,
+								}),
+							};
+						}),
+					),
+				),
+				Effect.flatMap(Effect.all),
+			);
+	}).pipe(runPromise);
+}
+
+async function loadAllSpacesEntry(
+	activeOrgInfo: OrganizationRow,
+	currentOrganizationRole: OrganizationRole | null,
+): Promise<Spaces> {
+	const [orgMemberCountResult, orgVideoCountResult] = await Promise.all([
+		db()
+			.select({ value: sql<number>`COUNT(*)` })
+			.from(organizationMembers)
+			.where(eq(organizationMembers.organizationId, activeOrgInfo.id)),
+		db()
+			.select({
+				value: sql<number>`COUNT(DISTINCT ${sharedVideos.videoId})`,
+			})
+			.from(sharedVideos)
+			.where(eq(sharedVideos.organizationId, activeOrgInfo.id)),
+	]);
+	const orgMemberCount = orgMemberCountResult[0]?.value || 0;
+	const orgVideoCount = orgVideoCountResult[0]?.value || 0;
+
+	return Effect.gen(function* () {
+		const imageUploads = yield* ImageUploads;
+
+		const iconUrl = activeOrgInfo.iconUrl;
 
 		return {
-			id: activeOrganization.id,
+			id: activeOrgInfo.id,
 			primary: true,
 			privacy: "Public",
-			name: `All ${activeOrganization.name}`,
-			description: `View all content in ${activeOrganization.name}`,
-			organizationId: activeOrganization.id,
-			iconUrl: activeOrganization.iconUrl
-				? yield* imageUploads.resolveImageUrl(activeOrganization.iconUrl)
-				: null,
-			memberCount: activeStats?.memberCount || 0,
-			createdById: activeOrganization.ownerId,
-			videoCount: activeStats?.videoCount || 0,
+			name: `All ${activeOrgInfo.name}`,
+			description: `View all content in ${activeOrgInfo.name}`,
+			organizationId: activeOrgInfo.id,
+			iconUrl: iconUrl ? yield* imageUploads.resolveImageUrl(iconUrl) : null,
+			memberCount: orgMemberCount,
+			createdById: activeOrgInfo.ownerId,
+			videoCount: orgVideoCount,
 			settings: null,
 			hasPassword: false,
 			public: false,
@@ -260,286 +291,261 @@ async function loadActiveOrganizationData({
 			),
 		} as const;
 	}).pipe(runPromise);
-
-	return {
-		organizationSettings: activeOrganization.settings || null,
-		spacesData: [allSpacesEntry, ...resolvedSpaces],
-		anyNewNotifications: activeStats?.anyNewNotifications || false,
-		userCapsCount: activeStats?.userCapsCount || 0,
-	};
 }
 
-async function loadOrganizationSummaries(
-	userOrganizations: (typeof organizations.$inferSelect)[],
+export async function getDashboardSpacesData(
 	user: typeof userSelectProps,
-): Promise<OrganizationSummary[]> {
-	if (userOrganizations.length === 0) return [];
+): Promise<Spaces[]> {
+	const userOrganizations = await loadUserOrganizations(user);
+	const active = resolveActiveOrganization(user, userOrganizations);
+	if (!active) return [];
 
-	const organizationIds = userOrganizations.map(
-		(organization) => organization.id,
+	const currentOrganizationRole = await loadActiveOrganizationRole(
+		user,
+		active.activeOrganizationId,
+		active.activeOrgInfo,
 	);
-	const ownerIds = Array.from(
-		new Set(userOrganizations.map((organization) => organization.ownerId)),
-	);
-	const managerIds = Array.from(new Set([...ownerIds, user.id]));
+	const [spacesRows, allSpacesEntry] = await Promise.all([
+		loadSpaces(user, active.activeOrganizationId, currentOrganizationRole),
+		active.activeOrgInfo
+			? loadAllSpacesEntry(active.activeOrgInfo, currentOrganizationRole)
+			: Promise.resolve(null),
+	]);
 
-	const [allMembers, managers, ownedOrganizationRows] = await Promise.all([
+	return allSpacesEntry ? [allSpacesEntry, ...spacesRows] : spacesRows;
+}
+
+async function loadActiveOrganizationData(
+	user: typeof userSelectProps,
+	{
+		activeOrganizationId,
+		activeOrgInfo,
+	}: NonNullable<ReturnType<typeof resolveActiveOrganization>>,
+) {
+	const [currentOrganizationRole, [notification]] = await Promise.all([
+		loadActiveOrganizationRole(user, activeOrganizationId, activeOrgInfo),
 		db()
-			.select({
-				member: organizationMembers,
-				user: {
-					id: users.id,
-					name: users.name,
-					lastName: users.lastName,
-					email: users.email,
-					image: users.image,
-				},
-			})
-			.from(organizationMembers)
-			.leftJoin(users, eq(organizationMembers.userId, users.id))
-			.where(inArray(organizationMembers.organizationId, organizationIds)),
-		db()
-			.select({
-				id: users.id,
-				inviteQuota: users.inviteQuota,
-				stripeSubscriptionId: users.stripeSubscriptionId,
-				stripeSubscriptionStatus: users.stripeSubscriptionStatus,
-				thirdPartyStripeSubscriptionId: users.thirdPartyStripeSubscriptionId,
-			})
-			.from(users)
-			.where(inArray(users.id, managerIds)),
-		db()
-			.select({ id: organizations.id, ownerId: organizations.ownerId })
-			.from(organizations)
+			.select({ id: notifications.id })
+			.from(notifications)
 			.where(
 				and(
-					inArray(organizations.ownerId, ownerIds),
-					isNull(organizations.tombstoneAt),
+					eq(notifications.recipientId, user.id),
+					eq(notifications.orgId, activeOrganizationId),
+					isNull(notifications.readAt),
 				),
-			),
+			)
+			.limit(1),
 	]);
 
-	const allOwnedOrganizationIds = ownedOrganizationRows.map(({ id }) => id);
-	const [memberCountRows, inviteCountRows] = await Promise.all([
-		db()
-			.select({
-				organizationId: organizationMembers.organizationId,
-				value: count(),
-			})
-			.from(organizationMembers)
-			.where(
-				inArray(organizationMembers.organizationId, allOwnedOrganizationIds),
-			)
-			.groupBy(organizationMembers.organizationId),
-		db()
-			.select({
-				organizationId: organizationInvites.organizationId,
-				value: count(),
-			})
-			.from(organizationInvites)
-			.where(
-				inArray(organizationInvites.organizationId, allOwnedOrganizationIds),
-			)
-			.groupBy(organizationInvites.organizationId),
-	]);
-
-	const managersById = new Map(
-		managers.map((manager) => [manager.id, manager]),
-	);
-	const membersByOrganizationId = groupBy(
-		allMembers,
-		({ member }) => member.organizationId,
-	);
-	const ownedOrganizationIdsByOwnerId = groupBy(
-		ownedOrganizationRows,
-		({ ownerId }) => ownerId,
-	);
-	const memberCountsByOrganizationId = new Map(
-		memberCountRows.map(({ organizationId, value }) => [organizationId, value]),
-	);
-	const inviteCountsByOrganizationId = new Map(
-		inviteCountRows.map(({ organizationId, value }) => [organizationId, value]),
-	);
-
-	return Effect.all(
-		userOrganizations.map(
-			Effect.fn(function* (organization) {
-				const imageUploads = yield* ImageUploads;
-				const members = membersByOrganizationId.get(organization.id) || [];
-				const owner = managersById.get(organization.ownerId);
-				const currentManager = managersById.get(user.id);
-				const currentMember = members.find(
-					({ member }) => member.userId === user.id,
-				);
-				const currentRole = getEffectiveOrganizationRole({
-					userId: user.id,
-					ownerId: organization.ownerId,
-					memberRole: currentMember?.member.role,
-				});
-				const proSeatProvider = selectProSeatProvider({
-					actor: currentManager,
-					owner,
-					actorCanManageProSeats: canManageOrganizationProSeats(currentRole),
-				});
-				const totalInvites = (
-					ownedOrganizationIdsByOwnerId.get(organization.ownerId) || []
-				).reduce(
-					(total, { id }) =>
-						total +
-						(memberCountsByOrganizationId.get(id) || 0) +
-						(inviteCountsByOrganizationId.get(id) || 0),
-					0,
-				);
-
-				return {
-					organization: {
-						...organization,
-						iconUrl: organization.iconUrl
-							? yield* imageUploads.resolveImageUrl(organization.iconUrl)
-							: null,
-						shareableLinkIconUrl: organization.shareableLinkIconUrl
-							? yield* imageUploads.resolveImageUrl(
-									organization.shareableLinkIconUrl,
-								)
-							: null,
-					},
-					members: yield* Effect.all(
-						members.map(
-							Effect.fn(function* ({ member, user: memberUser }) {
-								if (!memberUser) {
-									throw new Error("Organization member user not found");
-								}
-
-								return {
-									...member,
-									user: {
-										...memberUser,
-										image: memberUser.image
-											? yield* imageUploads.resolveImageUrl(memberUser.image)
-											: null,
-									},
-								};
-							}),
+	const [spacesRows, allSpacesEntry, userCapsCountResult] = await Promise.all([
+		loadSpaces(user, activeOrganizationId, currentOrganizationRole),
+		activeOrgInfo
+			? loadAllSpacesEntry(activeOrgInfo, currentOrganizationRole)
+			: Promise.resolve(null),
+		activeOrgInfo
+			? db()
+					.select({
+						value: sql<number>`COUNT(DISTINCT ${videos.id})`,
+					})
+					.from(videos)
+					.where(
+						and(
+							eq(videos.orgId, activeOrgInfo.id),
+							eq(videos.ownerId, user.id),
 						),
-						{ concurrency: 4 },
-					),
-					inviteQuota: proSeatProvider?.inviteQuota ?? 0,
-					totalInvites,
-					ownerIsPro: userIsPro(owner ?? null),
-					hasActiveProSeatProvider: proSeatProvider !== null,
-				};
-			}),
-		),
-		{ concurrency: 3 },
-	).pipe(runPromise);
+					)
+			: Promise.resolve<{ value: number }[]>([]),
+	]);
+
+	return {
+		anyNewNotifications: !!notification,
+		organizationSettings: activeOrgInfo?.settings || null,
+		spacesData: allSpacesEntry ? [allSpacesEntry, ...spacesRows] : spacesRows,
+		userCapsCount: userCapsCountResult[0]?.value || 0,
+	};
 }
 
 export async function getDashboardData(user: typeof userSelectProps) {
 	try {
-		const [ownedOrganizations, memberOrganizations] = await Promise.all([
-			db()
-				.select()
-				.from(organizations)
-				.where(
-					and(
-						isNull(organizations.tombstoneAt),
-						eq(organizations.ownerId, user.id),
-					),
-				),
-			db()
-				.select({
-					organization: organizations,
-					role: organizationMembers.role,
-				})
-				.from(organizationMembers)
-				.innerJoin(
-					organizations,
-					eq(organizations.id, organizationMembers.organizationId),
-				)
-				.where(
-					and(
-						eq(organizationMembers.userId, user.id),
-						isNull(organizations.tombstoneAt),
-					),
-				),
-		]);
+		const userOrganizations = await loadUserOrganizations(user);
+		const organizationIds = userOrganizations.map((org) => org.id);
+		const active = resolveActiveOrganization(user, userOrganizations);
 
-		const userOrganizations = mergeUserOrganizations(
-			ownedOrganizations,
-			memberOrganizations,
-		);
-		const organizationIds = userOrganizations.map(
-			(organization) => organization.id,
-		);
-		const memberRolesByOrganizationId = new Map(
-			memberOrganizations.map(({ organization, role }) => [
-				organization.id,
-				role,
-			]),
-		);
-
-		const activeOrganization =
-			userOrganizations.find(
-				(organization) => organization.id === user.activeOrganizationId,
-			) || userOrganizations[0];
-
-		const organizationInvitesPromise =
+		const [organizationInvitesData, activeData] = await Promise.all([
 			organizationIds.length > 0
 				? db()
 						.select()
 						.from(organizationInvites)
 						.where(inArray(organizationInvites.organizationId, organizationIds))
-				: Promise.resolve([] as (typeof organizationInvites.$inferSelect)[]);
-		const userPreferencesPromise = db()
-			.select({ preferences: users.preferences })
-			.from(users)
-			.where(eq(users.id, user.id))
-			.limit(1);
-		const activeOrganizationDataPromise = activeOrganization
-			? loadActiveOrganizationData({
-					activeOrganization,
-					memberRole: memberRolesByOrganizationId.get(activeOrganization.id),
-					user,
-				})
-			: Promise.resolve(emptyActiveOrganizationData());
-		const organizationSummariesPromise = loadOrganizationSummaries(
-			userOrganizations,
-			user,
-		);
-
-		const [
-			organizationInvitesData,
-			userPreferencesRows,
-			activeOrganizationData,
-			organizationSummaries,
-		] = await Promise.all([
-			organizationInvitesPromise,
-			userPreferencesPromise,
-			activeOrganizationDataPromise,
-			organizationSummariesPromise,
+				: Promise.resolve<(typeof organizationInvites.$inferSelect)[]>([]),
+			active ? loadActiveOrganizationData(user, active) : Promise.resolve(null),
 		]);
 
-		const organizationInvitesByOrganizationId = groupBy(
-			organizationInvitesData,
-			(invite) => invite.organizationId,
-		);
+		const spacesData: Spaces[] = activeData?.spacesData ?? [];
+		const organizationSettings: OrganizationSettings | null =
+			activeData?.organizationSettings ?? null;
+		const anyNewNotifications = activeData?.anyNewNotifications ?? false;
+		const userCapsCount = activeData?.userCapsCount ?? 0;
+		const userPreferences = { preferences: user.preferences };
 
-		const organizationSelect: Organization[] = organizationSummaries.map(
-			(summary) => ({
-				...summary,
-				invites:
-					organizationInvitesByOrganizationId.get(summary.organization.id) ||
-					[],
-			}),
-		);
+		const organizationSelect: Organization[] = await Effect.all(
+			userOrganizations.map(
+				Effect.fn(function* (organization) {
+					const db = yield* Database;
+					const iconImages = yield* ImageUploads;
+
+					const managerIds = Array.from(
+						new Set([organization.ownerId, user.id]),
+					);
+					const [allMembers, managers, ownedIds] = yield* Effect.all(
+						[
+							db.use((db) =>
+								db
+									.select({
+										member: organizationMembers,
+										user: {
+											id: users.id,
+											name: users.name,
+											lastName: users.lastName,
+											email: users.email,
+											image: users.image,
+										},
+									})
+									.from(organizationMembers)
+									.leftJoin(users, eq(organizationMembers.userId, users.id))
+									.where(
+										eq(organizationMembers.organizationId, organization.id),
+									),
+							),
+							db.use((db) =>
+								db
+									.select({
+										id: users.id,
+										inviteQuota: users.inviteQuota,
+										stripeSubscriptionId: users.stripeSubscriptionId,
+										stripeSubscriptionStatus: users.stripeSubscriptionStatus,
+										thirdPartyStripeSubscriptionId:
+											users.thirdPartyStripeSubscriptionId,
+									})
+									.from(users)
+									.where(inArray(users.id, managerIds)),
+							),
+							db.use((db) =>
+								db
+									.select({ id: organizations.id })
+									.from(organizations)
+									.where(
+										and(
+											eq(organizations.ownerId, organization.ownerId),
+											isNull(organizations.tombstoneAt),
+										),
+									)
+									.then((rows) => rows.map((r) => r.id)),
+							),
+						],
+						{ concurrency: "unbounded" },
+					);
+					const owner = managers.find(
+						(manager) => manager.id === organization.ownerId,
+					);
+					const currentManager = managers.find(
+						(manager) => manager.id === user.id,
+					);
+					const currentMember = allMembers.find(
+						(member) => member.member.userId === user.id,
+					);
+					const currentRole = getEffectiveOrganizationRole({
+						userId: user.id,
+						ownerId: organization.ownerId,
+						memberRole: currentMember?.member.role,
+					});
+					const proSeatProvider = selectProSeatProvider({
+						actor: currentManager,
+						owner,
+						actorCanManageProSeats: canManageOrganizationProSeats(currentRole),
+					});
+
+					const [memberCountResult, inviteCountResult] = yield* Effect.all(
+						[
+							db.use((db) =>
+								ownedIds.length > 0
+									? db
+											.select({ value: count() })
+											.from(organizationMembers)
+											.where(
+												inArray(organizationMembers.organizationId, ownedIds),
+											)
+									: Promise.resolve([{ value: 0 }]),
+							),
+							db.use((db) =>
+								ownedIds.length > 0
+									? db
+											.select({ value: count() })
+											.from(organizationInvites)
+											.where(
+												inArray(organizationInvites.organizationId, ownedIds),
+											)
+									: Promise.resolve([{ value: 0 }]),
+							),
+						],
+						{ concurrency: "unbounded" },
+					);
+
+					const totalInvites =
+						(memberCountResult[0]?.value || 0) +
+						(inviteCountResult[0]?.value || 0);
+
+					return {
+						organization: {
+							...organization,
+							iconUrl: organization.iconUrl
+								? yield* iconImages.resolveImageUrl(organization.iconUrl)
+								: null,
+							shareableLinkIconUrl: organization.shareableLinkIconUrl
+								? yield* iconImages.resolveImageUrl(
+										organization.shareableLinkIconUrl,
+									)
+								: null,
+						},
+						members: yield* Effect.all(
+							allMembers.map(
+								Effect.fn(function* (m) {
+									const imageUploads = yield* ImageUploads;
+									if (!m.user) {
+										throw new Error("Organization member user not found");
+									}
+									return {
+										...m.member,
+										user: {
+											...m.user,
+											image: m.user.image
+												? yield* imageUploads.resolveImageUrl(m.user.image)
+												: null,
+										},
+									};
+								}),
+							),
+						),
+						invites: organizationInvitesData.filter(
+							(invite) => invite.organizationId === organization.id,
+						),
+						inviteQuota: proSeatProvider?.inviteQuota ?? 0,
+						totalInvites,
+						ownerIsPro: userIsPro(owner ?? null),
+						hasActiveProSeatProvider: proSeatProvider !== null,
+					};
+				}),
+			),
+			{ concurrency: 3 },
+		).pipe(runPromise);
 
 		return {
 			organizationSelect,
-			organizationSettings: activeOrganizationData.organizationSettings,
-			spacesData: activeOrganizationData.spacesData,
-			anyNewNotifications: activeOrganizationData.anyNewNotifications,
-			userPreferences: userPreferencesRows[0] || null,
-			userCapsCount: activeOrganizationData.userCapsCount,
+			organizationSettings,
+			spacesData,
+			anyNewNotifications,
+			userPreferences,
+			userCapsCount,
 		};
 	} catch (error) {
 		console.error("Failed to fetch dashboard data", error);

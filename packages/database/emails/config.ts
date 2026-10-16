@@ -57,6 +57,7 @@ export const sendEmail = async ({
 	replyTo,
 	fromOverride,
 	idempotencyKey,
+	attachments,
 }: {
 	email: string;
 	subject: string;
@@ -68,6 +69,11 @@ export const sendEmail = async ({
 	replyTo?: string;
 	fromOverride?: string;
 	idempotencyKey?: string;
+	attachments?: {
+		filename: string;
+		content: Buffer | string;
+		contentType?: string;
+	}[];
 }) => {
 	const r = resend();
 	if (!r) return;
@@ -90,6 +96,7 @@ export const sendEmail = async ({
 			scheduledAt,
 			cc: test ? undefined : cc,
 			replyTo: replyTo,
+			attachments,
 		},
 		idempotencyKey ? { idempotencyKey } : undefined,
 	);
