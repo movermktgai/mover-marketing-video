@@ -12,9 +12,9 @@ Cap's CLI, then treats the recording with Cap's 3D camera, a brand-matched
 background gradient, a synthetic cursor, and music, and exports an mp4.
 
 > **macOS only (for now).** This skill records via Cap's window capture and
-> resolves a cached Playwright Chromium under
-> `~/Library/Caches/ms-playwright`, both of which are macOS-specific today.
-> Apple Silicon is assumed (the bundled Chromium path is `chrome-mac-arm64`).
+> drives the installed Google Chrome at
+> `/Applications/Google Chrome.app`, both of which are macOS-specific today.
+> Apple Silicon is assumed.
 
 ## The skill directory
 
@@ -36,9 +36,9 @@ alias cap-demo='node <skilldir>/cap-demo.mjs'
 
 - **macOS on Apple Silicon.** Windows/Linux are not supported yet.
 - **Node 18+**, with `playwright-core` vendored into the skill. Run `npm
-  install` once inside `<skilldir>` on first use. It **reuses an already-cached
-  Chromium** under `~/Library/Caches/ms-playwright`; if none is cached, run
-  `npx playwright install chromium` once.
+  install` once inside `<skilldir>` on first use. It drives the installed
+  Google Chrome (`channel: "chrome"`, Chrome's sandbox on); nothing is
+  downloaded, so `npx playwright install` must not be run.
 - **`python3`** and **`ffmpeg`/`ffprobe`** on PATH.
 - The **`cap` CLI** on PATH (Cap Desktop, https://cap.so) with macOS
   **screen-recording permission** granted to it. Both stages otherwise resolve
@@ -181,9 +181,8 @@ Orchestrator (`cap-demo <url> [flags]`):
 `assets/music/<id>.mp3`; an unknown id errors.
 
 **Binary resolution** (both scripts): Cap binary = env `CAP_BIN`, else `cap` on
-PATH, else a clear error. Chromium = newest cached
-`~/Library/Caches/ms-playwright/chromium-*` (macOS), else the pinned
-`chromium-1228` build.
+PATH, else a clear error. Chromium = the installed Google Chrome
+(`channel: "chrome"`, Chrome's sandbox on), never a downloaded build.
 
 ## For dev tools / typing showcases (closeup variant)
 

@@ -9,7 +9,7 @@
 // Usage: node scout-shoot.mjs <url> <outDir> <slug> [--story click|scroll]
 
 import { execFileSync, execSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
 
@@ -52,38 +52,23 @@ function resolveCap() {
 }
 const CAP = resolveCap();
 
-// Chromium: newest cached ms-playwright chromium-*; fall back to the pinned build.
-function resolveChromium() {
-	const HOME = process.env.HOME;
-	const suffix =
-		"chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing";
-	const fallback = `${HOME}/Library/Caches/ms-playwright/chromium-1228/${suffix}`;
-	try {
-		const base = `${HOME}/Library/Caches/ms-playwright`;
-		const dirs = readdirSync(base)
-			.filter((d) => /^chromium-\d+$/.test(d))
-			.map((d) => ({ d, n: parseInt(d.split("-")[1], 10) }))
-			.sort((a, b) => b.n - a.n);
-		for (const { d } of dirs) {
-			const exe = join(base, d, suffix);
-			if (existsSync(exe)) return exe;
-		}
-	} catch {}
-	return fallback;
-}
-const EXE = resolveChromium();
-
+// Chromium: the system Google Chrome, which is the only browser this machine
+// runs. Nothing is downloaded; Playwright launches it with its sandbox on.
 const PROJECT = join(outDir, `${slug}.cap`);
 const TIMELINE = join(outDir, `${slug}.timeline.json`);
+// A profile of its own, so the pkill below reaches this instance's Chrome and
+// never the user's.
+const PROFILE = join(outDir, `.${slug}.chrome-profile`);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const jitter = (b, s) => b + (Math.random() - 0.5) * s;
 
-// Stale/closing test-chrome windows stay enumerable in `cap record windows` and
-// the first-match can grab the WRONG one. Also close Finder/preview windows so
-// they never composite into the bottom of the window capture.
+// Stale/closing Chrome windows stay enumerable in `cap record windows` and the
+// first-match can grab the WRONG one. The kill is pinned to this run's profile,
+// so a Chrome the user has open is never touched. Also close Finder/preview
+// windows so they never composite into the bottom of the window capture.
 try {
-	execSync(`pkill -f "Google Chrome for Testing" || true`);
+	execSync(`pkill -f "user-data-dir=${PROFILE}" || true`);
 } catch {}
 try {
 	execSync(
@@ -92,9 +77,11 @@ try {
 } catch {}
 await sleep(800);
 
-const browser = await chromium.launch({
-	executablePath: EXE,
+const browser = await chromium.launchPersistentContext(PROFILE, {
+	channel: "chrome",
+	chromiumSandbox: true,
 	headless: false,
+	viewport: null,
 	ignoreDefaultArgs: ["--enable-automation"],
 	args: [
 		"--window-size=1560,1000",
@@ -102,7 +89,7 @@ const browser = await chromium.launch({
 		"--disable-blink-features=AutomationControlled",
 	],
 });
-const page = await browser.newPage({ viewport: null });
+const page = browser.pages()[0] ?? (await browser.newPage());
 await page.goto(url, { waitUntil: "load", timeout: 60000 });
 await sleep(2600);
 
@@ -301,8 +288,8 @@ const windows = JSON.parse(
 );
 const chromeWins = windows.filter(
 	(w) =>
-		/Chrome for Testing/i.test(w.ownerName ?? "") ||
-		/Chrome for Testing/i.test(w.name ?? ""),
+		/Google Chrome/i.test(w.ownerName ?? "") ||
+		/Google Chrome/i.test(w.name ?? ""),
 );
 let win = chromeWins.find((w) => (w.name ?? "").trim() === pageTitle.trim());
 if (!win && chromeWins.length === 1) win = chromeWins[0];

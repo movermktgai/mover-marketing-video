@@ -27,6 +27,7 @@ export async function preview(ctx, session) {
 				previewProfile(ctx, session),
 				{
 					channel: "chrome",
+					chromiumSandbox: true,
 					headless: false,
 					viewport: { width: 1440, height: 900 },
 				},
